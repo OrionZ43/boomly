@@ -1,5 +1,6 @@
 <script lang="ts">
   // Редактор плитки: название, значок, цвет, громкость, режим, хоткей, избранное, доски, удаление.
+  import { untrack } from "svelte";
   import { isAppError, type PlayMode, type Sound } from "$lib/api";
   import { t } from "$lib/i18n";
   import { app } from "$lib/stores/app.svelte";
@@ -21,14 +22,19 @@
   let hotkeyError = $state<string | null>(null);
   let saving = $state(false);
 
+  // Черновик заполняется один раз при открытии: изменения библиотеки во время редактирования
+  // (в т.ч. от нашего же сохранения) не должны его перезаписывать.
   $effect(() => {
     if (!open || !soundId) return;
-    const s = app.soundsById.get(soundId);
-    if (!s) return;
-    draft = { ...s, color: s.color || "cyan" };
-    hotkey = app.hotkeyBySound.get(s.id) ?? null;
-    boards = app.library.boards.filter((b) => b.soundIds.includes(s.id)).map((b) => b.id);
-    hotkeyError = null;
+    const id = soundId;
+    untrack(() => {
+      const s = app.soundsById.get(id);
+      if (!s) return;
+      draft = { ...s, color: s.color || "cyan" };
+      hotkey = app.hotkeyBySound.get(s.id) ?? null;
+      boards = app.library.boards.filter((b) => b.soundIds.includes(s.id)).map((b) => b.id);
+      hotkeyError = null;
+    });
   });
 
   const modes = $derived([
@@ -39,12 +45,16 @@
 
   async function save() {
     if (!draft) return;
+    // Снимок до любых await: события библиотеки не должны подменить то, что сохраняем.
+    const d = $state.snapshot(draft) as Sound;
+    const wantBoards = [...boards];
+    const hk = hotkey;
     saving = true;
     hotkeyError = null;
-    const old = app.hotkeyBySound.get(draft.id) ?? null;
+    const old = app.hotkeyBySound.get(d.id) ?? null;
     try {
-      if (hotkey !== old) {
-        if (hotkey) await app.setHotkey({ accelerator: hotkey, action: { type: "playSound", soundId: draft.id } });
+      if (hk !== old) {
+        if (hk) await app.setHotkey({ accelerator: hk, action: { type: "playSound", soundId: d.id } });
         else if (old) await app.removeHotkey(old);
       }
     } catch (e) {
@@ -52,8 +62,8 @@
       saving = false;
       return;
     }
-    const saved = await app.saveSound({ ...draft, name: draft.name.trim() || draft.name });
-    await app.setBoardMembership(draft.id, boards);
+    const saved = await app.saveSound({ ...d, name: d.name.trim() || d.name });
+    await app.setBoardMembership(d.id, wantBoards);
     saving = false;
     if (saved) {
       toast.success(t("editor.saved"));

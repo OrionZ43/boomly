@@ -18,6 +18,7 @@
     SoundGrid,
     SoundTile,
     StatusIndicator,
+    Toaster,
     VolumeSlider,
     toast,
     type BoardItem,
@@ -184,6 +185,7 @@
     if (dir) await importPaths([dir]);
   }
   onMount(() => {
+    app.init();
     let un: (() => void) | undefined;
     platform
       .onFileDrop((e) => {
@@ -195,13 +197,16 @@
         }
       })
       .then((u) => (un = u));
-    return () => un?.();
+    return () => {
+      un?.();
+      app.destroy();
+    };
   });
 
   // ---------- клавиатура ----------
   let search: HTMLInputElement | null = $state(null);
   function keydown(e: KeyboardEvent) {
-    const modalOpen = settingsOpen || aboutOpen || wizardOpen || editorOpen || boardDialogOpen || confirm.open;
+    const modalOpen = menu.open || settingsOpen || aboutOpen || wizardOpen || editorOpen || boardDialogOpen || confirm.open;
     if (modalOpen) return;
     if ((e.ctrlKey || e.metaKey) && e.code === "KeyF") {
       e.preventDefault();
@@ -235,7 +240,7 @@
     <div class="ml-auto flex items-center gap-1">
       <IconButton icon="settings" label={t("top.settings")} onclick={() => (settingsOpen = true)} />
       <IconButton icon="info" label={t("top.info")} onclick={() => (aboutOpen = true)} />
-      <Button variant="danger" icon="octagon-x" cut class="ml-2" disabled={!app.anyPlaying} onclick={app.stopAll} title={app.hotkeyFor("stopAll") ?? undefined}>
+      <Button variant="danger" icon="octagon-x" cut class="ml-2" onclick={app.stopAll} title={app.hotkeyFor("stopAll") ?? undefined}>
         {t("top.stopAll")}
       </Button>
     </div>
@@ -409,6 +414,7 @@
   }}
 />
 <AboutDialog bind:open={aboutOpen} />
+<Toaster offset={84} />
 <FirstRunWizard bind:open={wizardOpen} onadd={addFiles} />
 
 <style>

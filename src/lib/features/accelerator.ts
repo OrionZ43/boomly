@@ -26,7 +26,7 @@ export function keyName(code: string): string | null {
 
 export type Capture =
   | { kind: "done"; accelerator: string }
-  | { kind: "partial"; preview: string } // только модификаторы
+  | { kind: "partial"; preview: string; needMod?: boolean } // только модификаторы или клавиша без Ctrl/Alt
   | { kind: "cancel" }
   | { kind: "clear" }
   | { kind: "ignore" };
@@ -40,7 +40,9 @@ export function captureKey(e: KeyboardEvent): Capture {
   if (MOD_CODES.has(e.code)) return { kind: "partial", preview: mods.join("+") };
   const key = keyName(e.code);
   if (!key) return { kind: "ignore" };
-  // Без модификатора разрешаем только F-клавиши и цифровой блок — иначе сломаем набор текста в играх.
-  if (!mods.length && !/^(F\d{1,2}|Num.+|Pause|ScrollLock|Insert)$/.test(key)) return { kind: "partial", preview: key };
+  // Без модификатора (или с одним Shift) разрешаем только F-клавиши и цифровой блок —
+  // иначе глобальный хоткей перехватит обычный набор текста (Shift+A = «A») в играх и Discord.
+  const onlyShift = mods.length === 1 && mods[0] === "Shift";
+  if ((!mods.length || onlyShift) && !/^(F\d{1,2}|Num.+|Pause|ScrollLock|Insert)$/.test(key)) return { kind: "partial", preview: [...mods, key].join("+"), needMod: true };
   return { kind: "done", accelerator: [...mods, key].join("+") };
 }

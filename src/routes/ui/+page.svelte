@@ -23,6 +23,7 @@
     StatusIndicator,
     Switch,
     Toast,
+    Toaster,
 
     UpdateBanner,
     VolumeSlider,
@@ -807,3 +808,4 @@
     color: var(--magenta);
   }
 </style>
+<Toaster offset={24} />

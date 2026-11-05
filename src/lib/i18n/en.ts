@@ -110,7 +110,7 @@ export const en: Record<MessageKey, string> = {
   "hotkey.recording": "Press a combination…",
   "hotkey.clear": "Clear",
   "hotkey.cancelHint": "Esc to cancel",
-  "hotkey.needKey": "Add a regular key to the modifier",
+  "hotkey.needKey": "Add Ctrl or Alt — otherwise the key would get in the way of typing",
 
   "settings.title": "Settings",
   "settings.tab.sound": "Sound",

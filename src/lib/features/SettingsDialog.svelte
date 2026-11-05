@@ -47,6 +47,8 @@
 
   // хоткеи действий
   let hkError = $state<Record<string, string | null>>({});
+  // Пересоздать поле после отказа, чтобы оно снова показывало действующее сочетание.
+  let hkRev = $state(0);
   async function setActionHotkey(type: "stopAll" | "toggleMicMute", acc: string | null) {
     hkError[type] = null;
     const old = app.hotkeyFor(type);
@@ -55,6 +57,7 @@
       else if (old) await app.removeHotkey(old);
     } catch (e) {
       hkError[type] = isAppError(e) && e.code === "hotkey_conflict" ? t("error.hotkey_conflict") : errorText(e).title;
+      hkRev++;
     }
   }
 
@@ -114,6 +117,7 @@
           />
         {:else if tab === "hotkeys"}
           <p class="note">{t("settings.hotkeysHint")}</p>
+          {#key hkRev}
           <div class="grp">
             <span class="lbl">{t("settings.hotkeyStopAll")}</span>
             <HotkeyRecorder
@@ -132,6 +136,7 @@
               onchange={(v) => setActionHotkey("toggleMicMute", v)}
             />
           </div>
+          {/key}
         {:else if tab === "app"}
           <Select
             label={t("settings.language")}
@@ -211,7 +216,7 @@
               {t("settings.checking")}
             {:else if updater.status === "upToDate"}
               <Icon name="circle-check" size={16} class="text-ok" /> {t("settings.upToDate")}
-            {:else if updater.info && (updater.status === "available" || updater.status === "downloading" || updater.status === "ready")}
+            {:else if updater.info && (updater.status === "available" || updater.status === "downloading" || updater.status === "installing" || updater.status === "ready")}
               <Icon name="sparkles" size={16} class="text-accent" /> {t("settings.updateFound", { version: updater.info.version })}
             {:else if updater.status === "error" && updater.error}
               <Icon name="circle-alert" size={16} class="text-danger" /> {errorText(updater.error).title}

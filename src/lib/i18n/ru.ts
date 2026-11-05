@@ -119,7 +119,7 @@ export const ru = {
   "hotkey.recording": "Нажмите сочетание…",
   "hotkey.clear": "Убрать",
   "hotkey.cancelHint": "Esc — отмена",
-  "hotkey.needKey": "Добавьте обычную клавишу к модификатору",
+  "hotkey.needKey": "Добавьте Ctrl или Alt — иначе клавиша будет мешать набору текста",
 
   // настройки
   "settings.title": "Настройки",

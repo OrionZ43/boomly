@@ -47,7 +47,7 @@
       stop();
     } else if (c.kind === "partial") {
       preview = c.preview;
-      hint = c.preview && !c.preview.includes("+") && !["Ctrl", "Alt", "Shift", "Super"].includes(c.preview) ? t("hotkey.needKey") : null;
+      hint = c.needMod ? t("hotkey.needKey") : null;
     } else if (c.kind === "done") {
       set(c.accelerator);
       stop();

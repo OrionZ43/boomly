@@ -13,6 +13,8 @@ export const FAVORITES = "__fav";
 export interface PlayState {
   /** 0..1 или null, если длительность неизвестна. */
   progress: number | null;
+  /** Сколько копий играет (режим overlay). */
+  copies: number;
 }
 
 class AppStore {
@@ -70,29 +72,40 @@ class AppStore {
   }
 
   // ---------- старт ----------
+  #initStarted = false;
   async init() {
-    if (this.ready) return;
-    try {
-      const [library, audio, settings, devices, cable, hotkeys, info] = await Promise.all([
-        api.library.get(),
-        api.audio.getSettings(),
-        api.app.getSettings(),
-        api.audio.listDevices(),
-        api.audio.cableStatus(),
-        api.hotkeys.get(),
-        api.app.info(),
-      ]);
-      this.library = library;
-      this.audio = audio;
-      this.setSettingsLocal(settings);
-      this.devices = devices;
-      this.cable = cable;
-      this.hotkeys = hotkeys;
-      this.info = info;
-    } catch (e) {
-      showError(e);
-    }
-    this.#unlisten = await Promise.all([
+    if (this.#initStarted) return;
+    this.#initStarted = true;
+    this.#destroyed = false;
+    // Каждую команду отдельно: одна неготовая (`not_implemented`) не должна обнулять остальное.
+    const r = await Promise.allSettled([
+      api.library.get(),
+      api.audio.getSettings(),
+      api.app.getSettings(),
+      api.audio.listDevices(),
+      api.audio.cableStatus(),
+      api.hotkeys.get(),
+      api.app.info(),
+    ] as const);
+    const ok = <T,>(x: PromiseSettledResult<T>): T | undefined => {
+      if (x.status === "fulfilled") return x.value;
+      console.error("[boomly] init", x.reason);
+      return undefined;
+    };
+    const [library, audio, settings, devices, cable, hotkeys, info] = [
+      ok(r[0]), ok(r[1]), ok(r[2]), ok(r[3]), ok(r[4]), ok(r[5]), ok(r[6]),
+    ];
+    if (library) this.library = library;
+    if (audio) this.audio = audio;
+    if (settings) this.setSettingsLocal(settings);
+    if (devices) this.devices = devices;
+    if (cable) this.cable = cable;
+    if (hotkeys) this.hotkeys = hotkeys;
+    if (info) this.info = info;
+    const failed = r.find((x) => x.status === "rejected");
+    if (failed) showError((failed as PromiseRejectedResult).reason);
+
+    const unlisten = await Promise.all([
       on("library://changed", (d) => (this.library = d)),
       on("audio://settings-changed", (a) => (this.audio = a)),
       on("app://settings-changed", (s) => this.setSettingsLocal(s)),
@@ -101,8 +114,14 @@ class AppStore {
       on("audio://mic-level", (m) => (this.micLevel = m.peak)),
       on("audio://error", (e) => showError(e)),
       on("audio://playback", (p) => {
-        if (p.state === "started") this.playing[p.soundId] = { progress: p.durationMs ? 0 : null };
-        else delete this.playing[p.soundId];
+        const cur = this.playing[p.soundId];
+        if (p.state === "started") {
+          if (cur) cur.copies++;
+          else this.playing[p.soundId] = { progress: p.durationMs ? 0 : null, copies: 1 };
+        } else if (cur) {
+          // «Стоп» гасит все копии; конец одной копии — только её.
+          if (p.state === "stopped" || --cur.copies <= 0) delete this.playing[p.soundId];
+        }
         if (p.state === "error") showError({ code: "decode", message: this.soundsById.get(p.soundId)?.name ?? "" });
       }),
       on("audio://progress", (list) => {
@@ -113,10 +132,15 @@ class AppStore {
         // Действие уже выполнил Rust; UI обновится по событиям playback/settings.
       }),
     ]);
+    if (this.#destroyed) unlisten.forEach((u) => u());
+    else this.#unlisten = unlisten;
     this.ready = true;
   }
 
+  #destroyed = false;
   destroy() {
+    this.#destroyed = true;
+    this.#initStarted = false;
     this.#unlisten.forEach((u) => u());
     this.#unlisten = [];
   }
@@ -218,8 +242,8 @@ class AppStore {
     if (b) await attempt(() => api.library.updateBoard({ ...b, name, emoji }));
   }
   async deleteBoard(id: string) {
-    await attempt(() => api.library.deleteBoard(id));
-    if (this.activeBoard === id) this.activeBoard = ALL;
+    const ok = await attempt(async () => (await api.library.deleteBoard(id), true));
+    if (ok && this.activeBoard === id) this.activeBoard = ALL;
   }
   async moveBoard(id: string, delta: -1 | 1) {
     const ids = this.library.boards.map((b) => b.id);

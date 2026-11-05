@@ -1,23 +1,13 @@
 <script lang="ts">
   // Владелец: A. Общая обёртка: стили и автопроверка обновлений (участок E).
-  // D: загрузка состояния приложения и тосты — общие для всех экранов.
+  // Оболочку экранов (навигация, UpdateBanner, Toaster) делает D в своих компонентах.
   import { onMount } from "svelte";
   import { startAutoCheck } from "$lib/updater";
-  import { app } from "$lib/stores/app.svelte";
-  import { Toaster } from "$lib/ui";
   import "../app.css";
 
   let { children } = $props();
 
-  onMount(() => {
-    app.init();
-    const stop = startAutoCheck();
-    return () => {
-      stop();
-      app.destroy();
-    };
-  });
+  onMount(() => startAutoCheck());
 </script>
 
 {@render children()}
-<Toaster offset={84} />
