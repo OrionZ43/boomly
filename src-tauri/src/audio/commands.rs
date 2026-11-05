@@ -1,58 +1,73 @@
 //! Tauri-команды аудио (участок B). Имена и сигнатуры — контракт (docs/contracts.md).
-use tauri::State;
+//! Все команды быстрые (тяжёлое — в потоках движка), поэтому синхронные.
+//! `AppHandle` нужен только для ленивого старта движка, если `audio::init` не успел.
+use tauri::{AppHandle, State};
 
-use super::types::*;
 use super::AudioEngine;
+use super::types::*;
 use crate::error::{AppError, AppResult};
 use crate::library::Library;
 
-#[tauri::command]
-pub fn audio_list_devices(engine: State<'_, AudioEngine>) -> AppResult<DeviceList> {
-    engine.list_devices()
+fn engine<'a>(app: &AppHandle, engine: State<'a, AudioEngine>) -> State<'a, AudioEngine> {
+    engine.start(app.clone());
+    engine
 }
 
 #[tauri::command]
-pub fn audio_get_settings(engine: State<'_, AudioEngine>) -> AudioSettings {
-    engine.settings()
+pub fn audio_list_devices(app: AppHandle, engine: State<'_, AudioEngine>) -> AppResult<DeviceList> {
+    self::engine(&app, engine).list_devices()
+}
+
+#[tauri::command]
+pub fn audio_get_settings(app: AppHandle, engine: State<'_, AudioEngine>) -> AudioSettings {
+    self::engine(&app, engine).settings()
 }
 
 #[tauri::command]
 pub fn audio_set_devices(
+    app: AppHandle,
     engine: State<'_, AudioEngine>,
     selection: DeviceSelection,
 ) -> AppResult<AudioSettings> {
-    engine.set_devices(selection)
+    self::engine(&app, engine).set_devices(selection)
 }
 
 #[tauri::command]
 pub fn audio_set_volume(
+    app: AppHandle,
     engine: State<'_, AudioEngine>,
     channel: VolumeChannel,
     value: f32,
 ) -> AppResult<AudioSettings> {
-    engine.set_volume(channel, value)
+    self::engine(&app, engine).set_volume(channel, value)
 }
 
 #[tauri::command]
-pub fn audio_set_mic_muted(engine: State<'_, AudioEngine>, muted: bool) -> AppResult<AudioSettings> {
-    engine.set_mic_muted(muted)
+pub fn audio_set_mic_muted(
+    app: AppHandle,
+    engine: State<'_, AudioEngine>,
+    muted: bool,
+) -> AppResult<AudioSettings> {
+    self::engine(&app, engine).set_mic_muted(muted)
 }
 
 #[tauri::command]
 pub fn audio_set_mic_passthrough(
+    app: AppHandle,
     engine: State<'_, AudioEngine>,
     enabled: bool,
 ) -> AppResult<AudioSettings> {
-    engine.set_mic_passthrough(enabled)
+    self::engine(&app, engine).set_mic_passthrough(enabled)
 }
 
 #[tauri::command]
-pub fn audio_cable_status(engine: State<'_, AudioEngine>) -> CableStatus {
-    engine.cable_status()
+pub fn audio_cable_status(app: AppHandle, engine: State<'_, AudioEngine>) -> CableStatus {
+    self::engine(&app, engine).cable_status()
 }
 
 #[tauri::command]
 pub fn audio_play(
+    app: AppHandle,
     engine: State<'_, AudioEngine>,
     library: State<'_, Library>,
     sound_id: String,
@@ -60,20 +75,28 @@ pub fn audio_play(
     let sound = library
         .sound(&sound_id)
         .ok_or_else(|| AppError::new("not_found", format!("звук {sound_id} не найден")))?;
-    engine.play(&sound)
+    self::engine(&app, engine).play(&sound)
 }
 
 #[tauri::command]
-pub fn audio_stop(engine: State<'_, AudioEngine>, sound_id: String) -> AppResult<()> {
-    engine.stop(&sound_id)
+pub fn audio_stop(
+    app: AppHandle,
+    engine: State<'_, AudioEngine>,
+    sound_id: String,
+) -> AppResult<()> {
+    self::engine(&app, engine).stop(&sound_id)
 }
 
 #[tauri::command]
-pub fn audio_stop_all(engine: State<'_, AudioEngine>) -> AppResult<()> {
-    engine.stop_all()
+pub fn audio_stop_all(app: AppHandle, engine: State<'_, AudioEngine>) -> AppResult<()> {
+    self::engine(&app, engine).stop_all()
 }
 
 #[tauri::command]
-pub fn audio_play_test(engine: State<'_, AudioEngine>, target: TestTarget) -> AppResult<()> {
-    engine.play_test(target)
+pub fn audio_play_test(
+    app: AppHandle,
+    engine: State<'_, AudioEngine>,
+    target: TestTarget,
+) -> AppResult<()> {
+    self::engine(&app, engine).play_test(target)
 }
