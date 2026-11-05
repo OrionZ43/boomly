@@ -103,7 +103,11 @@ impl Loaded {
 
 fn read_value(path: &Path) -> Option<std::io::Result<Value>> {
     match fs::read(path) {
-        Ok(bytes) => Some(serde_json::from_slice(&bytes).map_err(std::io::Error::other)),
+        // Блокнот и PowerShell 5 пишут UTF-8 с BOM — serde_json его не принимает.
+        Ok(bytes) => {
+            let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
+            Some(serde_json::from_slice(body).map_err(std::io::Error::other))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => Some(Err(e)),
     }
@@ -141,6 +145,14 @@ mod tests {
         write_json_atomic(&p, &json!({"x": 1})).unwrap();
         assert_eq!(read_json(&p).unwrap(), Loaded::Main(json!({"x": 1})));
         assert!(!tmp_path(&p).exists(), "временный файл не должен оставаться");
+    }
+
+    #[test]
+    fn reads_utf8_with_bom() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.json");
+        fs::write(&p, b"\xEF\xBB\xBF{\"x\": 1}").unwrap();
+        assert_eq!(read_json(&p).unwrap(), Loaded::Main(json!({"x": 1})));
     }
 
     #[test]

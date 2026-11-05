@@ -297,6 +297,8 @@ impl Hotkeys {
             inner.bindings.iter().find(|b| same_keys(&b.accelerator, shortcut)).cloned()
         };
         let Some(b) = binding else { return };
+        #[cfg(debug_assertions)]
+        eprintln!("[boomly] hotkey {} -> {:?}", b.accelerator, b.action);
         if let Err(e) = run_action(app, &b.action) {
             eprintln!("[boomly] хоткей {}: {e}", b.accelerator);
             let _ = app.emit(events::AUDIO_ERROR, &e);
