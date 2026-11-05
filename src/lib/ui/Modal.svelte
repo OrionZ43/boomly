@@ -75,6 +75,7 @@
 
 <style>
   .modal {
+    margin: auto; /* preflight Tailwind обнуляет margin, а центрирует <dialog> именно он */
     padding: 0;
     border: 0;
     background: transparent;

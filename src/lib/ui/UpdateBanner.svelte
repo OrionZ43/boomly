@@ -25,6 +25,7 @@
     later: "Позже",
     notes: "Что нового",
     downloading: "Загрузка обновления",
+    installing: "Устанавливаем…",
     ready: "Обновление установлено",
     readyText: "Перезапустите Boomly, чтобы применить.",
     restart: "Перезапустить",
@@ -47,7 +48,7 @@
   <div class="ub s-{status}" role={status === "error" ? "alert" : "status"}>
     <span class="ic">
       <Icon
-        name={status === "error" ? "circle-alert" : status === "ready" ? "circle-check" : status === "downloading" ? "download" : "sparkles"}
+        name={status === "error" ? "circle-alert" : status === "ready" ? "circle-check" : status === "downloading" || status === "installing" ? "download" : "sparkles"}
         size={18}
       />
     </span>
@@ -71,6 +72,9 @@
             .filter(Boolean)
             .join(" · ")}
         </span>
+      {:else if status === "installing"}
+        <strong>{L.installing} <span class="ver">{info?.version}</span></strong>
+        <span class="bar" aria-hidden="true"><span class="indet"></span></span>
       {:else if status === "ready"}
         <strong>{L.ready}</strong>
         <span class="sub">{L.readyText}</span>
@@ -89,7 +93,7 @@
       {:else if status === "error"}
         {#if oncheck}<Button variant="secondary" size="sm" icon="rotate-ccw" onclick={oncheck}>{L.retry}</Button>{/if}
       {/if}
-      {#if ondismiss && status !== "downloading" && status !== "available"}
+      {#if ondismiss && status !== "downloading" && status !== "installing" && status !== "available"}
         <IconButton icon="x" label={L.close} size="sm" onclick={ondismiss} />
       {/if}
     </div>

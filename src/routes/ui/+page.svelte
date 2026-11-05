@@ -15,13 +15,15 @@
     Modal,
     Panel,
     SearchField,
+    Select,
+    TextField,
     Segmented,
     SoundGrid,
     SoundTile,
     StatusIndicator,
     Switch,
     Toast,
-    Toaster,
+
     UpdateBanner,
     VolumeSlider,
     ACCENTS,
@@ -412,6 +414,9 @@
         <span class="lbl">Поиск</span>
         <SearchField bind:value={query} />
       </div>
+      <Select label="Устройство" hint="Наушники или колонки." value="a" options={[{ value: "a", label: "По умолчанию" }, { value: "b", label: "Наушники (Realtek)" }]} />
+      <TextField label="Название" placeholder="Например, Мемы" />
+      <TextField label="С ошибкой" value="Ctrl+1" error="Это сочетание уже занято" />
     </div>
   </section>
 
@@ -562,7 +567,6 @@
   {/snippet}
 </Modal>
 
-<Toaster offset={24} />
 
 <style>
   .page {
