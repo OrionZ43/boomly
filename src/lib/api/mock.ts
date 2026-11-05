@@ -61,7 +61,7 @@ let app: AppSettings = {
   firstRunCompleted: false,
   checkUpdates: true,
 };
-const demoColors = ["cyan", "purple", "magenta", "yellow", "green", "orange"];
+const demoColors = ["cyan", "purple", "magenta", "lime", "green", "orange"];
 const demo: Sound[] = ["Бум", "Аплодисменты", "Сверчки", "Ба-дум-тсс", "Вау", "Сирена"].map(
   (name, i) => ({
     id: `demo-${i}`,

@@ -1,7 +1,13 @@
 <script lang="ts">
-  // Владелец: A. Общая обёртка: стили. Оболочку экранов (навигация) делает D в своих компонентах.
+  // Владелец: A. Общая обёртка: стили и автопроверка обновлений (участок E).
+  // Оболочку экранов (навигация, UpdateBanner, Toaster) делает D в своих компонентах.
+  import { onMount } from "svelte";
+  import { startAutoCheck } from "$lib/updater";
   import "../app.css";
+
   let { children } = $props();
+
+  onMount(() => startAutoCheck());
 </script>
 
 {@render children()}

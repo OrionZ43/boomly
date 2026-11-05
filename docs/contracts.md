@@ -142,3 +142,17 @@ UI зовёт `checkForUpdate(): Promise<UpdateInfo | null>` и `installUpdate(o
 (события `playback`/`progress`). Включается сам в браузере (`pnpm dev`, http://localhost:1420)
 и в окне Tauri при `VITE_BOOMLY_MOCK=1`. Rust-заглушки возвращают пустые данные или
 `not_implemented`, так что в окне без мока экраны должны переносить пустую библиотеку.
+
+## 7. Платформа окна (A) — `src/lib/api/platform.ts`
+
+Не команды Rust, а плагины Tauri. Экраны зовут только `platform.*` из `$lib/api`.
+
+| Функция | Результат | Под капотом |
+|---|---|---|
+| `pickSoundFiles({ multiple? })` | `string[] \| null` (`null` — отмена) | `tauri-plugin-dialog`, фильтр mp3/wav/ogg/flac |
+| `pickSoundFolder()` | `string \| null` | `tauri-plugin-dialog`, `directory: true` |
+| `onFileDrop(handler)` | `Unlisten`; события `{ type: "enter"\|"over"\|"leave"\|"drop", paths }` | `getCurrentWebview().onDragDropEvent`; пути только у `enter`/`drop` |
+| `openExternal(url)` | `void` | `tauri-plugin-opener` `openUrl` (http/https) |
+
+Полученные пути передаются в `api.library.import({ paths, boardId })` — папки B2 разворачивает сам.
+Мок: фиксированные демо-пути, HTML5-drop с фиктивными путями, `window.open`.

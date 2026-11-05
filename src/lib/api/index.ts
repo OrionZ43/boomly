@@ -8,6 +8,9 @@ import type * as T from "./types";
 export * from "./types";
 export type { EventMap, EventName } from "./events";
 export { useMock } from "./transport";
+export type { Unlisten } from "./transport";
+export { platform, SOUND_EXTENSIONS } from "./platform";
+export type { FileDropEvent, Platform } from "./platform";
 
 const call = <C extends CommandName>(cmd: C, args: ArgsOf<C>): Promise<ResultOf<C>> =>
   transport.call(cmd, args);

@@ -22,6 +22,7 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(audio::AudioEngine::new())
         .manage(library::Library::new())
         .manage(hotkeys::Hotkeys::new())
