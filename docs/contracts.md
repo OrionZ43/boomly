@@ -103,6 +103,14 @@ UI зовёт `checkForUpdate(): Promise<UpdateInfo | null>` и `installUpdate(o
 Реализация на `@tauri-apps/plugin-updater` — дело E; сигнатуры не менять без A.
 Настройка `AppSettings.checkUpdates` включает автопроверку (при старте и раз в N часов).
 
+| Команда | Аргументы | Результат | Заметки |
+|---|---|---|---|
+| `updater_enabled` | — | `boolean` | есть ли в сборке публичный ключ (`plugins.updater.pubkey`); `false` — обновления не ищем. Мок: `true` только при `VITE_BOOMLY_MOCK_UPDATE=1` |
+
+Состояние и автопроверка для баннера и «Инфо» — `$lib/updater` (`updater`, `startAutoCheck()`),
+см. `src/lib/updater/README.md`. Ручная `updater.checkNow()` работает и при выключенной
+`checkUpdates`.
+
 ## 4. События Rust → UI
 
 Имена — `src-tauri/src/events.rs` и `src/lib/api/events.ts`. Подписка: `on("audio://playback", fn)`.

@@ -1,0 +1,86 @@
+# Участок E. Проверки на каждый PR и push в main. Секреты не нужны.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check (pnpm + cargo)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: pnpm check
+        run: pnpm check
+      - name: pnpm build
+        # build/ нужен и для cargo: generate_context! встраивает фронт при компиляции
+        run: pnpm build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --locked
+
+  bundle:
+    # Пробная сборка NSIS-установщика без подписи апдейтера (ключа в PR нет и не нужно).
+    # Это же — «сухой прогон» release.yml.
+    name: bundle (NSIS, без подписи)
+    runs-on: windows-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: bundle
+
+      - name: tauri build --bundles nsis
+        shell: pwsh
+        run: pnpm tauri build --bundles nsis --config .github/tauri.nosign.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boomly-setup-unsigned
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 7

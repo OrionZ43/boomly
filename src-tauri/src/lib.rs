@@ -58,7 +58,8 @@ pub fn run() {
             system::commands::app_set_settings,
             system::commands::app_info,
             system::commands::app_open_data_dir,
-            // --- E: updater (если понадобятся свои команды) ---
+            // --- E: updater ---
+            updater::commands::updater_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
