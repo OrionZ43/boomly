@@ -27,7 +27,7 @@ export type MenuItem =
   | { separator: true };
 
 /** Состояния стора `updater` участка E (src/lib/updater/). */
-export type UpdaterState = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
+export type UpdaterState = "idle" | "checking" | "available" | "downloading" | "installing" | "ready" | "error";
 
 export interface UpdateBannerLabels {
   available: string;
@@ -35,6 +35,7 @@ export interface UpdateBannerLabels {
   later: string;
   notes: string;
   downloading: string;
+  installing: string;
   ready: string;
   readyText: string;
   restart: string;
