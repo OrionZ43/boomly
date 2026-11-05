@@ -19,8 +19,10 @@
 Правила стыковки:
 - Новую команду участок пишет в своём `commands.rs` и добавляет **одну строку** в своём блоке
   `generate_handler!` в `lib.rs` (это единственная правка чужого файла без согласования).
-- Плагины и `setup` участок регистрирует в своём `init()` (`system::init`, `hotkeys::init`,
-  `updater::init`), а не в `lib.rs`. `tauri-plugin-single-instance` — первым в `system::init`.
+- Плагины и `setup` участок регистрирует в своём `init()` (`system::init`, `audio::init`,
+  `hotkeys::init`, `updater::init`), а не в `lib.rs`. `audio::init` — мини-плагин с собственным
+  `setup` (`Builder::setup` у приложения один, его не трогаем); стоит сразу после `system::init`.
+  `tauri-plugin-single-instance` — первым в `system::init`.
 - Экраны (D) зовут бэкенд **только** через `$lib/api` (`api.*`, `on(...)`), не через `invoke`.
 - `Cargo.lock` и `pnpm-lock.yaml` при конфликте не правим руками — перегенерируем.
 - `tauri.conf.json`: окно (`app.windows`) — A/D, `bundle`/`plugins.updater` — E.
@@ -132,6 +134,10 @@ UI зовёт `checkForUpdate(): Promise<UpdateInfo | null>` и `installUpdate(o
 
 - `audio::AudioEngine` (B) — `play(&Sound)`, `stop(id)`, `stop_all()`, `set_mic_muted(bool)`,
   `settings()` и др. Хоткеи и трей (B2) зовут их через `app.state::<AudioEngine>()`.
+  `toggle_mic_muted()` — для хоткея `toggleMicMute`. Все методы быстрые (тяжёлое — в потоках
+  движка); `audio://settings-changed` движок шлёт сам из сеттеров, кто бы их ни вызвал.
+- `audio::probe_duration_ms(path: &Path) -> Option<u64>` (B) — длительность по заголовку файла без
+  декодирования; B2 зовёт при импорте, чтобы заполнить `Sound.durationMs`.
 - `library::Library` (B2) — `sound(id) -> Option<Sound>`, `snapshot() -> LibraryData`.
   `audio_play` берёт звук отсюда.
 - Сигнатуры этих публичных методов — часть контракта. Внутренности — на усмотрение участка.

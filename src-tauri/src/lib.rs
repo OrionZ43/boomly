@@ -17,6 +17,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
     // single-instance должен регистрироваться первым — B2 делает это в system::init.
     builder = system::init(builder);
+    builder = audio::init(builder);
     builder = hotkeys::init(builder);
     builder = updater::init(builder);
 
