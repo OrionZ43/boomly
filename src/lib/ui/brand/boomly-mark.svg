@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 84 376 300" width="376" height="300">
+  <!-- Boomly — знак без подложки (для светлых и цветных фонов, сайта, README). -->
+  <defs>
+    <linearGradient id="g" x1="80" y1="80" x2="440" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00f0ff"/>
+      <stop offset="1" stop-color="#ff00c1"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(-22 0)">
+    <path fill="url(#g)" fill-rule="evenodd" d="M156 140H240C284 140 310 163 310 198C310 222 298 240 278 249C306 259 322 281 322 313C322 352 292 376 248 376H128V168ZM180 184H232C248 184 258 193 258 206C258 219 248 228 232 228H180ZM180 270H240C258 270 270 281 270 298C270 315 258 330 240 330H180Z"/>
+    <path fill="none" stroke="url(#g)" stroke-width="28" stroke-linecap="round" d="M356 214A62 62 0 0 1 356 298"/>
+    <path fill="none" stroke="url(#g)" stroke-width="28" stroke-linecap="round" d="M396 172A118 118 0 0 1 396 340"/>
+  </g>
+  <path fill="#fcee0a" d="M424 92L434 122L464 132L434 142L424 172L414 142L384 132L414 122Z"/>
+</svg>
