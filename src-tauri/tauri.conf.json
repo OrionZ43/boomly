@@ -53,7 +53,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNCQ0VCRjEzRjQwNjU5QjgKUldTNFdRYjBFNy9PT3pMbDdMY0ZUcVZpUlpIOC9xUmYxVjB4R2JvQVlNcGNqMkg5TkxYVWU4bDQK",
       "endpoints": [
         "https://github.com/OrionZ43/boomly/releases/latest/download/latest.json"
       ],
