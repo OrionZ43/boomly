@@ -1,22 +1,281 @@
-/* Участок C — дизайн-система: токены Z43 (docs/decisions.md, раздел «Дизайн»).
-   Здесь только Tailwind и базовые цвета, чтобы окно не было белым. */
+/* Участок C — дизайн-система Boomly в стиле Z43 (docs/decisions.md, «Дизайн»; план §1.4).
+   Принципы: OLED-чёрный, cyan-акцент (выбирается), жёлтый только для «играет/избранное»,
+   срезанный угол только у «Стоп всё» и шапки, эффекты по умолчанию спокойные.
+   Режимы: <html data-effects="minimal|normal"> и prefers-reduced-motion гасят анимации и свечения.
+   Акцент: <html data-accent="cyan|purple|magenta|lime|orange"> или style="--accent: #hex"
+   (см. src/lib/ui/theme.ts). */
 @import "tailwindcss";
 
-@theme {
-  --color-bg: #07070a;
-  --color-panel: rgb(20 22 28 / 0.72);
-  --color-line: rgb(255 255 255 / 0.08);
-  --color-accent: #00f0ff;
-  --color-accent-2: #9d00ff;
-  --color-magenta: #ff00c1;
-  --color-playing: #fcee0a;
+/* ---------- шрифты (локально, OFL — static/fonts/OFL-*.txt) ---------- */
+@font-face {
+  font-family: "Russo One";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/russo-one-cyrillic-400-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Russo One";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/russo-one-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-cyrillic-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Chakra Petch — только латиница и цифры (кириллицы нет): хоткеи, проценты, таймеры. */
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/chakra-petch-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/chakra-petch-latin-600-normal.woff2") format("woff2");
 }
 
+/* ---------- токены ---------- */
+:root {
+  /* Поверхности (снизу вверх) */
+  --bg: #07070a;
+  --surface-1: #0e0f13; /* сайдбар, нижняя панель */
+  --surface-2: #15171d; /* плитки, поля */
+  --surface-3: #1d2028; /* hover, меню */
+  --glass: rgb(20 22 28 / 0.72); /* модалки, всплывашки (+ blur только на них) */
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.16);
+
+  /* Текст. Контраст (WCAG) на --bg / --surface-3: text 17.1 / 13.8, muted 9.2 / 7.5,
+     faint 5.6 / 4.6 — все ≥ AA 4.5:1.
+     Ниже faint для текста не опускаемся. */
+  --text: #ececf2;
+  --text-muted: #a8b0c0;
+  --text-faint: #7f889a;
+
+  /* Бренд */
+  --cyan: #00f0ff;
+  --purple: #9d00ff;
+  --purple-text: #c78bff; /* фиолетовый для текста: #9d00ff на чёрном < 4.5:1 */
+  --magenta: #ff00c1;
+  --yellow: #fcee0a; /* только «играет» и «избранное» */
+  --red: #ff3355;
+  --green: #39ff88;
+  --orange: #ffa53a;
+  --gradient-brand: linear-gradient(120deg, #00f0ff 0%, #ff00c1 100%);
+
+  /* Акцент (переключается) и производные */
+  --accent: var(--cyan);
+  --accent-ink: #001417; /* текст на заливке акцентом */
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 45%, transparent);
+
+  /* Состояния */
+  --ok: var(--green);
+  --warn: var(--orange);
+  --danger: var(--red);
+
+  /* Радиусы и срез угла */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-tile: 12px;
+  --radius-lg: 16px;
+  --cut: 10px; /* срезанный угол: кнопка «Стоп всё», шапка */
+  --cut-lg: 16px;
+
+  /* Отступы (сетка 4px) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Тени и свечения (в режиме minimal свечения обнуляются) */
+  --shadow-panel: 0 8px 30px rgb(0 0 0 / 0.45);
+  --shadow-pop: 0 12px 40px rgb(0 0 0 / 0.6), 0 0 0 1px var(--line-strong);
+  --glow-sm: 0 0 12px color-mix(in oklab, var(--glow-color, var(--accent)) 35%, transparent);
+  --glow-md: 0 0 24px color-mix(in oklab, var(--glow-color, var(--accent)) 45%, transparent);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  /* Движение */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 360ms;
+
+  /* Шрифты */
+  --font-display: "Russo One", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Chakra Petch", "Inter", ui-monospace, monospace;
+}
+
+/* Выбор акцента. Жёлтый не предлагаем — он занят под «играет/избранное». */
+:root[data-accent="purple"] {
+  --accent: #b44dff;
+  --accent-ink: #0a0012; /* белый на этом акценте < 4.5:1 */
+}
+:root[data-accent="magenta"] {
+  --accent: var(--magenta);
+  --accent-ink: #0a0012; /* белый на этом акценте < 4.5:1 */
+}
+:root[data-accent="lime"] {
+  --accent: #a6ff3d;
+  --accent-ink: #0b1400;
+}
+:root[data-accent="orange"] {
+  --accent: var(--orange);
+  --accent-ink: #1a0d00;
+}
+
+/* Спокойный режим: без свечений и бесконечных анимаций, только короткие переходы. */
+:root[data-effects="minimal"] {
+  --glow-sm: 0 0 0 transparent;
+  --glow-md: 0 0 0 transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- тема Tailwind 4 (утилиты поверх токенов) ---------- */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-glass: var(--glass);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-cyan: var(--cyan);
+  --color-purple: var(--purple);
+  --color-purple-text: var(--purple-text);
+  --color-magenta: var(--magenta);
+  --color-playing: var(--yellow);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-tile: var(--radius-tile);
+  --radius-lg: var(--radius-lg);
+
+  --shadow-panel: var(--shadow-panel);
+  --shadow-pop: var(--shadow-pop);
+  --shadow-glow-sm: var(--glow-sm);
+  --shadow-glow-md: var(--glow-md);
+}
+
+@utility cut-corners {
+  clip-path: polygon(
+    var(--cut) 0,
+    100% 0,
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    0 100%,
+    0 var(--cut)
+  );
+}
+@utility text-gradient-brand {
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility glass {
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--line-strong);
+}
+
+/* ---------- база ---------- */
 html,
 body {
   height: 100%;
   margin: 0;
-  background: var(--color-bg);
-  color: #e8e8f0;
+  background: var(--bg);
+  color: var(--text);
   color-scheme: dark;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+::selection {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* Тонкий скроллбар Z43 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #333843 transparent;
+}
+*:hover {
+  scrollbar-color: color-mix(in oklab, var(--accent) 50%, #333843) transparent;
 }
