@@ -1,0 +1,26 @@
+# Node / SvelteKit
+node_modules
+/build
+/.svelte-kit
+/package
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri
+/src-tauri/target
+/src-tauri/gen/schemas
+
+# Секреты: ключи подписи апдейтера никогда не коммитим
+.env
+.env.*
+!.env.example
+*.key
+*.key.pub
+
+# Локальные заметки агентов Continental Guild
+/.guild
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea

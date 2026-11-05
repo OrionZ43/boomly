@@ -1,0 +1,22 @@
+/* Участок C — дизайн-система: токены Z43 (docs/decisions.md, раздел «Дизайн»).
+   Здесь только Tailwind и базовые цвета, чтобы окно не было белым. */
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #07070a;
+  --color-panel: rgb(20 22 28 / 0.72);
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-accent: #00f0ff;
+  --color-accent-2: #9d00ff;
+  --color-magenta: #ff00c1;
+  --color-playing: #fcee0a;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--color-bg);
+  color: #e8e8f0;
+  color-scheme: dark;
+}
