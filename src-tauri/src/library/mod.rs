@@ -29,6 +29,8 @@ struct Inner {
     /// `None` — хранилище не открыто (тесты контрактов, до setup): правки только в памяти.
     file: Option<PathBuf>,
     sounds_dir: Option<PathBuf>,
+    /// Открыть хранилище не удалось: правки запрещены, иначе они молча пропадут.
+    unavailable: Option<String>,
 }
 
 #[derive(Default)]
@@ -55,50 +57,71 @@ impl Library {
 
     /// Открывает хранилище в `data_dir` (вызывается из setup участка B2).
     /// Битый файл не роняет приложение: откладывается в сторону, берётся `.bak`.
+    /// Если открыть не удалось (нет доступа и т.п.), изменяющие команды отвечают `io`.
     pub fn open(&self, data_dir: &Path) -> AppResult<()> {
+        let res = Self::load(data_dir);
+        let mut inner = self.lock();
+        match res {
+            Ok(fresh) => *inner = fresh,
+            Err(e) => inner.unavailable = Some(e.message.clone()),
+        }
+        match &inner.unavailable {
+            Some(m) => Err(AppError::new("io", m.clone())),
+            None => Ok(()),
+        }
+    }
+
+    fn load(data_dir: &Path) -> AppResult<Inner> {
         let file = data_dir.join(LIBRARY_FILE);
         let sounds_dir = data_dir.join(SOUNDS_DIR);
         fs::create_dir_all(&sounds_dir).map_err(io_err)?;
         let loaded = store::read_json(&file)?;
-        let from_backup = matches!(loaded, Loaded::Backup(_));
+        let mut must_save = matches!(loaded, Loaded::Backup(_));
         let mut data = LibraryData::default();
-        let mut must_save = from_backup;
         if let Some(value) = loaded.into_value() {
-            let m = migrate::migrate(value.clone())?;
-            if let Some(newer) = m.newer {
-                // Файл от более новой версии (откатили приложение). Оригинал — в сторону,
-                // чтобы новая версия после обратного обновления ничего не потеряла.
-                let keep = file.with_file_name(format!("{LIBRARY_FILE}.v{newer}.bak"));
-                if !keep.exists() {
-                    store::write_json_atomic(&keep, &value)?;
-                }
-            }
-            if let Some(from) = m.from {
-                let keep = file.with_file_name(format!("{LIBRARY_FILE}.v{from}.bak"));
-                store::write_json_atomic(&keep, &value)?;
-                must_save = true;
-            }
-            match serde_json::from_value::<LibraryData>(m.value) {
-                Ok(d) => data = d,
+            let keep_aside = |reason: &str| -> AppResult<()> {
+                let aside = file.with_file_name(format!("{LIBRARY_FILE}.unreadable-{}", now_ms()));
+                eprintln!("[boomly] library.json: {reason}, копия оригинала — {}", aside.display());
+                store::write_json_atomic(&aside, &value)
+            };
+            match migrate::migrate(value.clone()) {
                 Err(e) => {
-                    let aside = file.with_file_name(format!("{LIBRARY_FILE}.unreadable-{}", now_ms()));
-                    eprintln!("[boomly] library.json не читается ({e}), сохраняю копию в {}", aside.display());
-                    store::write_json_atomic(&aside, &value)?;
+                    // Корректный JSON, но не объект — разбирать нечего; оригинал сохраняем.
+                    keep_aside(&e.message)?;
                     must_save = true;
                 }
+                Ok(m) => {
+                    if let Some(newer) = m.newer {
+                        // Файл от более новой версии (откатили приложение). Оригинал — в сторону,
+                        // всегда свежий, чтобы после обратного обновления ничего не потерялось.
+                        let keep = file.with_file_name(format!("{LIBRARY_FILE}.v{newer}.bak"));
+                        store::write_json_atomic(&keep, &value)?;
+                    }
+                    if let Some(from) = m.from {
+                        let keep = file.with_file_name(format!("{LIBRARY_FILE}.v{from}.bak"));
+                        store::write_json_atomic(&keep, &value)?;
+                        must_save = true;
+                    }
+                    let (parsed, dropped) = migrate::parse_lenient(&m.value);
+                    if dropped > 0 {
+                        keep_aside(&format!("пропущено испорченных записей: {dropped}"))?;
+                        must_save = true;
+                    }
+                    data = parsed;
+                }
             }
-            data.version = migrate::CURRENT_VERSION;
         }
         model::sanitize(&mut data);
         if must_save {
             store::write_json_atomic(&file, &data)?;
         }
-        let mut inner = self.lock();
-        *inner = Inner { data, file: Some(file), sounds_dir: Some(sounds_dir) };
-        Ok(())
+        Ok(Inner { data, file: Some(file), sounds_dir: Some(sounds_dir), unavailable: None })
     }
 
     fn persist(inner: &Inner, data: &LibraryData) -> AppResult<()> {
+        if let Some(why) = &inner.unavailable {
+            return Err(AppError::new("io", format!("библиотека недоступна: {why}")));
+        }
         match &inner.file {
             Some(f) => store::write_json_atomic(f, data),
             None => Ok(()),
@@ -115,14 +138,21 @@ impl Library {
         Ok((out, next))
     }
 
-    /// Удаляет звуки; скопированные в `sounds` файлы удаляются тоже.
+    /// Удаляет звуки; скопированные в `sounds` файлы удаляются тоже, если на тот же файл
+    /// не ссылается другой звук.
     pub fn delete_sounds(&self, ids: &[String]) -> AppResult<(Vec<Sound>, LibraryData)> {
         let (removed, snap) = self.mutate(|d| Ok(model::delete_sounds(d, ids)))?;
         let sounds_dir = self.lock().sounds_dir.clone();
         if let Some(dir) = sounds_dir {
+            let still_used: HashSet<PathBuf> =
+                snap.sounds.iter().filter_map(|s| Path::new(&s.path).canonicalize().ok()).collect();
             for s in &removed {
                 let p = Path::new(&s.path);
-                if is_inside(p, &dir) && let Err(e) = fs::remove_file(p) {
+                let shared = p.canonicalize().is_ok_and(|c| still_used.contains(&c));
+                if !shared
+                    && is_inside(p, &dir)
+                    && let Err(e) = fs::remove_file(p)
+                {
                     // Например, файл ещё открыт. Звука в библиотеке уже нет — это главное.
                     eprintln!("[boomly] не удалось удалить {}: {e}", p.display());
                 }
@@ -135,6 +165,9 @@ impl Library {
     pub fn import(&self, req: &ImportRequest, copy: bool) -> AppResult<(ImportResult, LibraryData)> {
         let sounds_dir = {
             let inner = self.lock();
+            if let Some(why) = &inner.unavailable {
+                return Err(AppError::new("io", format!("библиотека недоступна: {why}")));
+            }
             if let Some(b) = &req.board_id
                 && !inner.data.boards.iter().any(|x| &x.id == b)
             {

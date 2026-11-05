@@ -272,3 +272,74 @@ fn data_survives_reopen_like_app_update() {
     drop(l);
     assert_eq!(opened(&data).snapshot(), before);
 }
+
+// ---------- найдено ревью ----------
+
+#[test]
+fn one_broken_record_does_not_wipe_the_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(LIBRARY_FILE);
+    let v1 = json!({"version": 1, "sounds": [
+        {"id": "ok", "name": "OK", "path": "C:/a.mp3", "color": "#fff", "emoji": null, "volume": 1.0,
+         "mode": "toggle", "favorite": false, "durationMs": null, "addedAt": 1},
+        {"id": "nulls", "path": "C:/b.mp3", "volume": null, "favorite": null},
+        {"id": "bad", "path": "C:/c.mp3", "volume": "громко"},
+        42
+    ], "boards": [{"id": "b", "soundIds": ["ok", "nulls", "bad"]}, "мусор"]});
+    fs::write(&file, serde_json::to_vec(&v1).unwrap()).unwrap();
+    let d = opened(dir.path()).snapshot();
+    let ids: Vec<_> = d.sounds.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, vec!["ok", "nulls"], "битая запись пропущена, остальные целы");
+    assert_eq!(d.sounds[1].volume, 1.0);
+    assert!(d.sounds[1].added_at > 0, "дата добавления — не 1970");
+    assert_eq!(d.boards.len(), 1);
+    assert_eq!(d.boards[0].sound_ids, vec!["ok".to_string(), "nulls".to_string()]);
+    let kept = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|e| e.file_name().to_string_lossy().starts_with("library.json.unreadable-"))
+        .expect("оригинал с битыми записями сохранён");
+    assert_eq!(read(&kept.path()), v1);
+}
+
+#[test]
+fn unavailable_store_rejects_changes_instead_of_losing_them() {
+    let dir = tempfile::tempdir().unwrap();
+    // Папка данных — на самом деле файл: открыть хранилище нельзя.
+    let data = dir.path().join("data");
+    fs::write(&data, b"not a dir").unwrap();
+    let l = Library::new();
+    assert_eq!(l.open(&data).unwrap_err().code, "io");
+    assert_eq!(l.mutate(|d| model::create_board(d, "X", None)).unwrap_err().code, "io");
+    let src = fixture(dir.path());
+    assert_eq!(l.import(&req(&[&src], None), false).unwrap_err().code, "io");
+    assert!(l.snapshot().boards.is_empty());
+}
+
+#[test]
+fn shared_copied_file_is_not_deleted_while_referenced() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = fixture(dir.path());
+    let data = dir.path().join("data");
+    let l = opened(&data);
+    let (first, _) = l.import(&req(&[&src.join("a.mp3")], None), true).unwrap();
+    let copy = Path::new(&first.added[0].path).to_path_buf();
+    // Пользователь импортировал ту же копию прямо из папки приложения, без копирования.
+    let (second, _) = l.import(&req(&[&copy], None), false).unwrap();
+    l.delete_sounds(&[second.added[0].id.clone()]).unwrap();
+    assert!(copy.exists(), "файл нужен первому звуку");
+    l.delete_sounds(&[first.added[0].id.clone()]).unwrap();
+    assert!(!copy.exists());
+}
+
+#[test]
+fn newer_schema_copy_is_refreshed_each_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(LIBRARY_FILE);
+    let keep = dir.path().join("library.json.v9.bak");
+    fs::write(&file, br#"{"version": 9, "sounds": [], "boards": [], "x": 1}"#).unwrap();
+    opened(dir.path());
+    fs::write(&file, br#"{"version": 9, "sounds": [], "boards": [], "x": 2}"#).unwrap();
+    opened(dir.path());
+    assert_eq!(read(&keep)["x"], json!(2));
+}

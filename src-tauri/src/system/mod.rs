@@ -37,8 +37,8 @@ pub fn init<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
                     if let Err(e) = app.state::<SettingsStore>().open(&dir) {
                         eprintln!("[boomly] settings.json: {e}");
                     }
-                    // Без библиотеки приложение бессмысленно, но падать молча хуже —
-                    // пишем в лог и стартуем; ошибку увидят по пустой библиотеке.
+                    // Не открылась (нет доступа) — стартуем, но правки библиотеки отвечают
+                    // `io`, чтобы ничего не пропало молча.
                     if let Err(e) = app.state::<Library>().open(&dir) {
                         eprintln!("[boomly] library.json: {e}");
                     }

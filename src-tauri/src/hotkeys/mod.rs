@@ -160,7 +160,7 @@ impl Hotkeys {
     pub fn open<R: Runtime>(&self, app: &AppHandle<R>, data_dir: &Path) -> AppResult<()> {
         let _op = self.op();
         let file = data_dir.join(HOTKEYS_FILE);
-        let bindings = load_bindings(&file, &app.state::<Library>())?;
+        let bindings = load_bindings(&file)?;
         let gs = app.global_shortcut();
         for b in &bindings {
             if let Err(e) = parse(&b.accelerator).and_then(|s| gs.register(s).map_err(|e| conflict_os(&b.accelerator, e))) {
@@ -180,13 +180,16 @@ impl Hotkeys {
         let _op = self.op();
         let cur = self.lock().clone();
         let plan = plan_set(&cur.bindings, binding.clone())?;
+        let gs = app.global_shortcut();
+        let new_sc = parse(&binding.accelerator)?;
         if plan.unchanged {
-            // Возможно, поменялось только написание — сохраним, ОС не трогаем.
+            // Те же клавиши. Если при старте их держала другая программа — пробуем снова.
+            if !cur.capturing && !gs.is_registered(new_sc) {
+                gs.register(new_sc).map_err(|e| conflict_os(&binding.accelerator, e))?;
+            }
             persist(&cur.file, &plan.next)?;
             return Ok(self.commit(plan.next));
         }
-        let gs = app.global_shortcut();
-        let new_sc = parse(&binding.accelerator)?;
         let old_sc = plan.replaced.as_ref().and_then(|r| parse(&r.accelerator).ok());
         if !cur.capturing {
             if let Some(old) = old_sc {
@@ -320,26 +323,22 @@ pub fn run_action<R: Runtime>(app: &AppHandle<R>, action: &HotkeyAction) -> AppR
         }
         HotkeyAction::StopAll => engine.stop_all(),
         HotkeyAction::ToggleMicMute => {
-            let s = engine.set_mic_muted(!engine.settings().mic_muted)?;
-            let _ = app.emit(events::AUDIO_SETTINGS_CHANGED, &s);
-            Ok(())
+            // `audio://settings-changed` шлёт сам движок из сеттера.
+            engine.set_mic_muted(!engine.settings().mic_muted).map(|_| ())
         }
     }
 }
 
-/// Читает привязки, пропуская испорченные записи и хоткеи удалённых звуков.
-fn load_bindings(file: &Path, library: &Library) -> AppResult<Vec<HotkeyBinding>> {
+/// Читает привязки, пропуская испорченные записи и повторы. Привязки к звукам, которых
+/// сейчас нет в библиотеке, сохраняем: библиотека могла не открыться, а при удалении звука
+/// его хоткей снимает `remove_for_sounds`.
+fn load_bindings(file: &Path) -> AppResult<Vec<HotkeyBinding>> {
     let Some(v) = store::read_json(file)?.into_value() else { return Ok(vec![]) };
     let raw = serde_json::from_value::<FileIn>(v).map(|f| f.bindings).unwrap_or_default();
     let mut out: Vec<HotkeyBinding> = vec![];
     for item in raw {
         let Ok(b) = serde_json::from_value::<HotkeyBinding>(item) else { continue };
         if parse(&b.accelerator).is_err() {
-            continue;
-        }
-        if let HotkeyAction::PlaySound { sound_id } = &b.action
-            && library.sound(sound_id).is_none()
-        {
             continue;
         }
         if out.iter().any(|o| o.action == b.action) {
@@ -415,12 +414,9 @@ mod tests {
     }
 
     #[test]
-    fn load_skips_broken_entries_and_deleted_sounds() {
+    fn load_skips_broken_entries_but_keeps_sound_bindings() {
+        // Библиотека при старте могла не открыться: хоткеи звуков терять нельзя.
         let dir = tempfile::tempdir().unwrap();
-        let lib = Library::new();
-        lib.open(dir.path()).unwrap();
-        let (b, _) = lib.mutate(|d| crate::library::model::create_board(d, "x", None)).unwrap();
-        let _ = b;
         let file = dir.path().join(HOTKEYS_FILE);
         std::fs::write(
             &file,
@@ -436,7 +432,7 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let got = load_bindings(&file, &lib).unwrap();
-        assert_eq!(got, vec![stop("F12"), HotkeyBinding { accelerator: "F8".into(), action: HotkeyAction::ToggleMicMute }]);
+        let got = load_bindings(&file).unwrap();
+        assert_eq!(got, vec![stop("F12"), play("F11", "deleted"), HotkeyBinding { accelerator: "F8".into(), action: HotkeyAction::ToggleMicMute }]);
     }
 }
