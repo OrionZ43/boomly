@@ -1,0 +1,114 @@
+# Участок E. Релиз по тегу vX.Y.Z: NSIS-установщик, подпись апдейтера, latest.json,
+# публикация GitHub Release. Инструкция — docs/release.md.
+#
+# Нужны секреты репозитория: TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+# Ручной запуск (Actions → Release → Run workflow) — сухой прогон: сборка без подписи и
+# без публикации, установщик прикладывается артефактом.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверки перед релизом
+        id: pre
+        shell: pwsh
+        env:
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          $conf  = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $pkg   = Get-Content package.json -Raw | ConvertFrom-Json
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version\s*=\s*"(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $v = $conf.version
+          Write-Host "tauri.conf.json=$v package.json=$($pkg.version) Cargo.toml=$cargo"
+          if ($pkg.version -ne $v -or $cargo -ne $v) { throw "Версии в tauri.conf.json, package.json и Cargo.toml не совпадают" }
+          if ($conf.identifier -ne 'com.orionz43.boomly') { throw "identifier изменён — установленные копии не обновятся" }
+          $notes = "docs/release-notes/v$v.md"
+          if ($env:PUBLISH -eq 'true') {
+            if ("${{ github.ref_name }}" -ne "v$v") { throw "Тег ${{ github.ref_name }} не совпадает с версией v$v" }
+            if ([string]::IsNullOrWhiteSpace($conf.plugins.updater.pubkey)) { throw "plugins.updater.pubkey пуст — см. docs/release.md, шаг 2" }
+            if ($env:HAS_KEY -ne 'true') { throw "Нет секрета TAURI_SIGNING_PRIVATE_KEY — см. docs/release.md, шаг 3" }
+            if (-not (Test-Path $notes)) { throw "Нет $notes — опишите изменения релиза" }
+          }
+          $body = if (Test-Path $notes) { Get-Content $notes -Raw -Encoding utf8 } else { "Boomly v$v" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "body<<BOOMLY_EOF`n$body`nBOOMLY_EOF" >> $env:GITHUB_OUTPUT
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Сборка и публикация (тег)
+        if: env.PUBLISH == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Boomly v__VERSION__
+          releaseBody: ${{ steps.pre.outputs.body }}
+          # Черновики и пре-релизы не видны через releases/latest — апдейтер их не увидит.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --bundles nsis
+
+      - name: Сухой прогон (без подписи и публикации)
+        if: env.PUBLISH != 'true'
+        shell: pwsh
+        run: pnpm tauri build --bundles nsis --config .github/tauri.nosign.json
+
+      - name: Артефакт сухого прогона
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: boomly-setup-dry-run
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 7
+
+      - name: latest.json доступен и указывает на новую версию
+        if: env.PUBLISH == 'true'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
+          for ($i = 0; $i -lt 10; $i++) {
+            try {
+              $j = Invoke-RestMethod $url
+              if ($j.version -eq "${{ steps.pre.outputs.version }}" -and $j.platforms.'windows-x86_64'.signature) {
+                Write-Host "OK: $url → $($j.version)"; exit 0
+              }
+              Write-Host "Пока $($j.version), ждём…"
+            } catch { Write-Host "Ещё нет: $_" }
+            Start-Sleep -Seconds 15
+          }
+          throw "latest.json не отдаёт версию ${{ steps.pre.outputs.version }} с подписью windows-x86_64"

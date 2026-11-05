@@ -52,6 +52,8 @@ export interface CommandMap {
   app_set_settings: Cmd<{ settings: AppSettings }, AppSettings>;
   app_info: Cmd<None, AppInfo>;
   app_open_data_dir: Cmd<None, null>;
+  // updater (E)
+  updater_enabled: Cmd<None, boolean>;
 }
 
 export type CommandName = keyof CommandMap;

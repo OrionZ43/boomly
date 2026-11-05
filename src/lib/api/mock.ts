@@ -228,6 +228,9 @@ const handlers: Handlers = {
   },
   app_info: () => ({ version: "0.0.0-mock", dataDir: "C:\\Users\\demo\\AppData\\Roaming\\Boomly" }),
   app_open_data_dir: () => null,
+
+  // E: апдейтер в моке включён только для витрины баннера (VITE_BOOMLY_MOCK_UPDATE=1)
+  updater_enabled: () => import.meta.env.VITE_BOOMLY_MOCK_UPDATE === "1",
 };
 
 export const mockTransport: Transport = {
