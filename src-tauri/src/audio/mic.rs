@@ -253,7 +253,7 @@ mod tests {
             } else {
                 buf.iter_mut().for_each(|x| *x = 0.0);
                 r.mix_into(&mut buf, out_block, 1.0, false);
-                out.extend(buf.chunks_exact(2).map(|f| f[0]));
+                out.extend(buf.as_chunks::<2>().0.iter().map(|f| f[0]));
                 t_out += out_block as f64 / out_rate as f64;
             }
         }

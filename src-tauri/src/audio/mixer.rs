@@ -233,7 +233,7 @@ impl Renderer {
                     }
                 }
                 Some(left) => {
-                    for (k, s) in src.chunks_exact(2).enumerate() {
+                    for (k, s) in src.as_chunks::<2>().0.iter().enumerate() {
                         if *left == 0 {
                             break;
                         }
@@ -260,7 +260,7 @@ impl Renderer {
 
         // громкость выхода — только на звуки; у голоса своя громкость
         self.master.set_target(self.params.volume.get());
-        for f in mix.chunks_exact_mut(2) {
+        for f in mix.as_chunks_mut::<2>().0.iter_mut() {
             let g = self.master.next_gain();
             f[0] *= g;
             f[1] *= g;
@@ -270,7 +270,7 @@ impl Renderer {
             mic.mix_chunk(mix, frames);
         }
 
-        for (o, f) in out.chunks_exact_mut(2).zip(mix.chunks_exact_mut(2)) {
+        for (o, f) in out.as_chunks_mut::<2>().0.iter_mut().zip(mix.as_chunks_mut::<2>().0.iter_mut()) {
             let (mut l, mut r) = (f[0], f[1]);
             self.limiter.process_frame(&mut l, &mut r);
             o[0] = l;
@@ -299,12 +299,12 @@ pub fn write_frames<T: Copy>(
 ) {
     match channels {
         1 => {
-            for (d, s) in dst.iter_mut().zip(stereo.chunks_exact(2)) {
+            for (d, s) in dst.iter_mut().zip(stereo.as_chunks::<2>().0.iter()) {
                 *d = conv((s[0] + s[1]) * 0.5);
             }
         }
         _ => {
-            for (d, s) in dst.chunks_exact_mut(channels).zip(stereo.chunks_exact(2)) {
+            for (d, s) in dst.chunks_exact_mut(channels).zip(stereo.as_chunks::<2>().0.iter()) {
                 d[0] = conv(s[0]);
                 d[1] = conv(s[1]);
                 for x in &mut d[2..] {
