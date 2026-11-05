@@ -396,10 +396,16 @@ fn settings_persist_and_load_partial_file() {
     let path = r.dir.join("audio.json");
     *r.engine.inner.settings_path.lock().unwrap() = Some(path.clone());
     r.engine.set_volume(VolumeChannel::Cable, 0.3).unwrap();
+    assert!(!path.exists(), "запись на диск — из тикера, не в вызове");
+    r.engine.inner.tick();
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!((saved["cableVolume"].as_f64().unwrap() - 0.3).abs() < 1e-6);
     // старый/частичный файл: недостающие поля — по умолчанию, громкость зажимается
-    std::fs::write(&path, r#"{"monitorVolume": 7.0, "micMuted": true}"#).unwrap();
+    std::fs::write(
+        &path,
+        "\u{feff}{\"monitorVolume\": 7.0, \"micMuted\": true}",
+    )
+    .unwrap();
     let e2 = AudioEngine::new();
     e2.inner.load_settings(&path);
     let s = e2.settings();
@@ -431,4 +437,36 @@ fn mic_level_only_when_passthrough() {
             .iter()
             .any(|(e, _)| e == events::AUDIO_MIC_LEVEL)
     );
+}
+
+#[test]
+fn overlay_while_decoding_gives_two_copies() {
+    let r = rig("ovl-dec", 48_000, 48_000);
+    let s = r.sound("d", 48_000, PlayMode::Overlay);
+    r.engine.play(&s).unwrap();
+    r.engine.play(&s).unwrap();
+    r.run_jobs();
+    assert_eq!(
+        r.sink.playback(),
+        vec![
+            ("d".into(), "started".into()),
+            ("d".into(), "started".into())
+        ]
+    );
+    assert_eq!(r.live(), 2);
+}
+
+#[test]
+fn stop_playing_and_pending_emits_once() {
+    let r = rig("stop-once", 48_000, 48_000);
+    let s = r.sound("s", 48_000, PlayMode::Overlay);
+    r.preload(&s);
+    r.engine.play(&s).unwrap(); // из кэша — играет
+    r.engine.inner.cache.retain_rates(&[]); // вторая копия пойдёт через декодер
+    r.engine.play(&s).unwrap();
+    r.sink.take();
+    r.engine.stop("s").unwrap();
+    r.run_jobs();
+    assert_eq!(r.sink.playback(), vec![("s".into(), "stopped".into())]);
+    assert_eq!(r.live(), 0);
 }

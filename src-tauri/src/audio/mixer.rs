@@ -199,6 +199,14 @@ impl Renderer {
     /// Заполнить стерео-буфер (interleaved L,R).
     pub fn render(&mut self, out: &mut [f32]) {
         self.apply_commands();
+        // регулятор моста микрофона считает по всему колбэку, а не по куску MIX_BLOCK
+        if let Some(mic) = self.mic.as_mut() {
+            mic.begin_callback(
+                out.len() / 2,
+                self.params.mic_volume.get(),
+                self.params.mic_muted.load(Ordering::Relaxed),
+            );
+        }
         for chunk in out.chunks_mut(MIX_BLOCK * 2) {
             self.render_block(chunk);
         }
@@ -259,12 +267,7 @@ impl Renderer {
         }
 
         if let Some(mic) = self.mic.as_mut() {
-            mic.mix_into(
-                mix,
-                frames,
-                self.params.mic_volume.get(),
-                self.params.mic_muted.load(Ordering::Relaxed),
-            );
+            mic.mix_chunk(mix, frames);
         }
 
         for (o, f) in out.chunks_exact_mut(2).zip(mix.chunks_exact_mut(2)) {
@@ -459,6 +462,26 @@ mod tests {
         r.render(&mut out);
         assert!(out.iter().all(|x| x.abs() < 1e-6));
         c.collect_garbage();
+    }
+
+    #[test]
+    fn mic_survives_long_callbacks() {
+        // колбэк кабеля 100 мс (4800 кадров, режется на куски MIX_BLOCK), микрофон — по 10 мс
+        let p = OutputParams::new(1.0);
+        let (mut r, mut c) = output(CABLE, 48_000, p);
+        let (mut w, rd) = mic::bridge(48_000, 48_000);
+        let stats = rd.stats();
+        c.send(RtCmd::SetMic(Some(Box::new(rd))));
+        let mut out = vec![0.0; 4800 * 2];
+        for _ in 0..200 {
+            // 20 с: за каждый колбэк кабеля приходит 10 блоков микрофона
+            for _ in 0..10 {
+                w.write_interleaved(&[0.1; 480], 1);
+            }
+            r.render(&mut out);
+        }
+        assert!(stats.underruns.load(Ordering::Relaxed) <= 1, "опустошения");
+        assert!(out.iter().step_by(2).all(|x| (x - 0.1).abs() < 1e-3));
     }
 
     #[test]

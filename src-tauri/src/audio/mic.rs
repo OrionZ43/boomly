@@ -132,6 +132,13 @@ impl MicReader {
     /// Подмешать голос в стерео-буфер `out` (interleaved L,R) длиной `frames` кадров.
     /// `volume` — «Голос», `muted` — mute; пик пишется в статистику.
     pub fn mix_into(&mut self, out: &mut [f32], frames: usize, volume: f32, muted: bool) {
+        self.begin_callback(frames, volume, muted);
+        self.mix_chunk(out, frames);
+    }
+
+    /// Начало колбэка кабеля: замер кольца, предбуферизация, регулятор. `frames` — размер
+    /// **всего** колбэка (рендерер может потом подмешивать его кусками через `mix_chunk`).
+    pub fn begin_callback(&mut self, frames: usize, volume: f32, muted: bool) {
         self.gain.set_target(volume);
         self.mute.set_target(if muted { 0.0 } else { 1.0 });
 
@@ -166,7 +173,13 @@ impl MicReader {
         self.err_smooth += alpha * (err - self.err_smooth);
         let corr = (KP * self.err_smooth).clamp(-MAX_CORRECTION, MAX_CORRECTION);
         self.step = self.nominal * (1.0 + corr);
+    }
 
+    /// Подмешать кусок колбэка (после `begin_callback`).
+    pub fn mix_chunk(&mut self, out: &mut [f32], frames: usize) {
+        if self.prebuffering {
+            return;
+        }
         let mut peak = 0.0f32;
         for i in 0..frames {
             self.frac += self.step;

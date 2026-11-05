@@ -13,8 +13,12 @@ fn engine<'a>(app: &AppHandle, engine: State<'a, AudioEngine>) -> State<'a, Audi
     engine
 }
 
+/// async: до первого опроса движок перечисляет устройства сам (десятки мс) — не на главном потоке.
 #[tauri::command]
-pub fn audio_list_devices(app: AppHandle, engine: State<'_, AudioEngine>) -> AppResult<DeviceList> {
+pub async fn audio_list_devices(
+    app: AppHandle,
+    engine: State<'_, AudioEngine>,
+) -> AppResult<DeviceList> {
     self::engine(&app, engine).list_devices()
 }
 
@@ -61,8 +65,11 @@ pub fn audio_set_mic_passthrough(
 }
 
 #[tauri::command]
-pub fn audio_cable_status(app: AppHandle, engine: State<'_, AudioEngine>) -> CableStatus {
-    self::engine(&app, engine).cable_status()
+pub async fn audio_cable_status(
+    app: AppHandle,
+    engine: State<'_, AudioEngine>,
+) -> AppResult<CableStatus> {
+    Ok(self::engine(&app, engine).cable_status())
 }
 
 #[tauri::command]

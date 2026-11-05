@@ -134,7 +134,7 @@ enum DevMsg {
     /// Включить/выключить сквозной микрофон.
     RebuildMic,
     /// Ошибка потока (устройство пропало / сменилось).
-    StreamError(String),
+    StreamError { msg: String, mic_only: bool },
 }
 
 /// Диагностика открытых потоков: для отчёта о задержке.
@@ -169,8 +169,8 @@ struct Inner {
     params: [Arc<OutputParams>; 2],
     outputs: Mutex<[Option<OutputControl>; 2]>,
     active: Mutex<Vec<Active>>,
-    /// Звуки, ждущие декодирования: sound_id → токен (отмена = удаление).
-    pending: Mutex<HashMap<String, u64>>,
+    /// Звуки, ждущие декодирования: sound_id → токены копий (отмена = удаление).
+    pending: Mutex<HashMap<String, Vec<u64>>>,
     cache: ClipCache,
     sink: RwLock<Option<Arc<dyn EventSink>>>,
     devices: Mutex<DeviceList>,
@@ -182,6 +182,7 @@ struct Inner {
     jobs: JobQueue,
     library_paths: Mutex<Vec<PathBuf>>,
     next_id: AtomicU64,
+    settings_dirty: AtomicBool,
     started: AtomicBool,
 }
 
@@ -225,6 +226,7 @@ impl AudioEngine {
             library_paths: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             started: AtomicBool::new(false),
+            settings_dirty: AtomicBool::new(false),
         };
         let e = Self {
             inner: Arc::new(inner),
@@ -362,35 +364,12 @@ impl AudioEngine {
     }
 
     pub fn stop(&self, sound_id: &str) -> AppResult<()> {
-        self.inner
-            .stop_where(|a| a.sound_id == sound_id && !a.silent);
-        if self
-            .inner
-            .pending
-            .lock()
-            .unwrap()
-            .remove(sound_id)
-            .is_some()
-        {
-            self.inner
-                .emit_playback(sound_id, PlaybackState::Stopped, None);
-        }
+        self.inner.stop_sounds(|id| id == sound_id);
         Ok(())
     }
 
     pub fn stop_all(&self) -> AppResult<()> {
-        self.inner.stop_where(|_| true);
-        let pending: Vec<String> = self
-            .inner
-            .pending
-            .lock()
-            .unwrap()
-            .drain()
-            .map(|(k, _)| k)
-            .collect();
-        for id in pending {
-            self.inner.emit_playback(&id, PlaybackState::Stopped, None);
-        }
+        self.inner.stop_sounds(|_| true);
         Ok(())
     }
 
@@ -498,7 +477,8 @@ impl Inner {
         };
         self.apply_params();
         if changed {
-            self.save_settings(&s);
+            // на диск — из тикера, не в потоке вызывающего (ползунок громкости шлёт десятки вызовов)
+            self.settings_dirty.store(true, Ordering::SeqCst);
             self.emit(events::AUDIO_SETTINGS_CHANGED, &s);
         }
         s
@@ -510,7 +490,9 @@ impl Inner {
         };
         // поля, которых нет в файле, — по умолчанию
         let def = to_json(&AudioSettings::default());
-        let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        // Блокнот и PowerShell 5 пишут UTF-8 с BOM — serde_json его не принимает
+        let text = text.trim_start_matches('\u{feff}');
+        let Ok(mut v) = serde_json::from_str::<serde_json::Value>(text) else {
             return;
         };
         if let (Some(obj), Some(d)) = (v.as_object_mut(), def.as_object()) {
@@ -524,6 +506,13 @@ impl Inner {
             s.mic_volume = s.mic_volume.clamp(0.0, 1.0);
             *self.settings.lock().unwrap() = s;
             self.apply_params();
+        }
+    }
+
+    fn flush_settings(&self) {
+        if self.settings_dirty.swap(false, Ordering::SeqCst) {
+            let s = self.settings.lock().unwrap().clone();
+            self.save_settings(&s);
         }
     }
 
@@ -551,8 +540,12 @@ impl Inner {
             .collect()
     }
 
+    /// Блокировки: `pending` берётся первым и держится, пока решается судьба звука, — так
+    /// stop/toggle не проскакивают между «декодер отдал звук» и «звук записан в `active`».
+    /// Порядок: `pending` → `active` → `outputs` (обратных вложений нет).
     fn play(&self, sound: &Sound) -> AppResult<()> {
         let mode = sound.mode;
+        let mut pending = self.pending.lock().unwrap();
         // повторный запуск того же звука
         let playing: Vec<u64> = self
             .active
@@ -562,11 +555,11 @@ impl Inner {
             .filter(|a| a.sound_id == sound.id && !a.stopped && !a.silent)
             .map(|a| a.instance)
             .collect();
-        let was_pending = self.pending.lock().unwrap().contains_key(&sound.id);
+        let was_pending = pending.contains_key(&sound.id);
         if (!playing.is_empty() || was_pending) && mode != PlayMode::Overlay {
             self.stop_where(|a| playing.contains(&a.instance));
             if was_pending {
-                self.pending.lock().unwrap().remove(&sound.id);
+                pending.remove(&sound.id);
                 if playing.is_empty() {
                     self.emit_playback(&sound.id, PlaybackState::Stopped, None);
                 }
@@ -591,7 +584,8 @@ impl Inner {
         }
         // промах кэша: декодируем в потоке движка, вызов не ждёт
         let token = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.pending.lock().unwrap().insert(sound.id.clone(), token);
+        pending.entry(sound.id.clone()).or_default().push(token);
+        drop(pending);
         self.jobs.push_front(Job::Play {
             sound: sound.clone(),
             token,
@@ -614,6 +608,15 @@ impl Inner {
         let shared = Arc::new(VoiceShared::default());
         let instance = self.next_id.fetch_add(1, Ordering::Relaxed);
         let duration_ms = clips.first().map(|c| c.1.duration_ms()).unwrap_or(0);
+        // сначала в `active`, потом в рендереры: stop_where всегда видит запущенный голос
+        self.active.lock().unwrap().push(Active {
+            instance,
+            sound_id: sound_id.into(),
+            duration_ms,
+            shared: shared.clone(),
+            stopped: false,
+            silent,
+        });
         let mut sent = 0;
         {
             let mut outs = self.outputs.lock().unwrap();
@@ -632,25 +635,22 @@ impl Inner {
             }
         }
         if sent == 0 {
+            self.active
+                .lock()
+                .unwrap()
+                .retain(|a| a.instance != instance);
             return Err(AppError::new(
                 "device_unavailable",
                 "устройство вывода недоступно",
             ));
         }
-        self.active.lock().unwrap().push(Active {
-            instance,
-            sound_id: sound_id.into(),
-            duration_ms,
-            shared,
-            stopped: false,
-            silent,
-        });
         self.emit_playback(sound_id, PlaybackState::Started, Some(duration_ms));
         Ok(())
     }
 
     /// Остановить экземпляры по условию; событие `stopped` — по одному на звук.
-    fn stop_where(&self, pred: impl Fn(&Active) -> bool) {
+    /// Возвращает id остановленных звуков.
+    fn stop_where(&self, pred: impl Fn(&Active) -> bool) -> Vec<String> {
         let mut ids = Vec::new();
         let mut stopped_sounds: Vec<String> = Vec::new();
         {
@@ -664,7 +664,7 @@ impl Inner {
             }
         }
         if ids.is_empty() {
-            return;
+            return stopped_sounds;
         }
         {
             let mut outs = self.outputs.lock().unwrap();
@@ -674,34 +674,67 @@ impl Inner {
                 }
             }
         }
-        for s in stopped_sounds {
-            self.emit_playback(&s, PlaybackState::Stopped, None);
+        for s in &stopped_sounds {
+            self.emit_playback(s, PlaybackState::Stopped, None);
+        }
+        stopped_sounds
+    }
+
+    /// Остановить звуки и отменить их ожидающее декодирование; `stopped` — по разу на звук.
+    fn stop_sounds(&self, pred: impl Fn(&str) -> bool) {
+        let mut pending = self.pending.lock().unwrap();
+        let stopped = self.stop_where(|a| !a.silent && pred(&a.sound_id));
+        let cancelled: Vec<String> = pending.keys().filter(|k| pred(k)).cloned().collect();
+        for id in cancelled {
+            pending.remove(&id);
+            if !stopped.contains(&id) {
+                self.emit_playback(&id, PlaybackState::Stopped, None);
+            }
         }
     }
 
     fn run_job(&self, job: Job) {
         match job {
             Job::Play { sound, token } => {
-                let still = |p: &HashMap<String, u64>| p.get(&sound.id) == Some(&token);
+                let still = |p: &HashMap<String, Vec<u64>>| {
+                    p.get(&sound.id).is_some_and(|t| t.contains(&token))
+                };
                 if !still(&self.pending.lock().unwrap()) {
                     return; // отменили, пока ждали
                 }
-                let rates = self.output_rates();
-                let only: Vec<u32> = rates.iter().map(|r| r.1).collect();
-                let res = self
-                    .cache
-                    .get_or_load(std::path::Path::new(&sound.path), &only);
-                {
-                    let mut p = self.pending.lock().unwrap();
-                    if !still(&p) {
-                        return;
+                let path = std::path::Path::new(&sound.path);
+                // выходы могли переоткрыться на другой частоте, пока декодировали, — ещё раз
+                let mut res = Err(AppError::new("device_unavailable", "нет устройств вывода"));
+                for _ in 0..3 {
+                    let rates = self.output_rates();
+                    if rates.is_empty() {
+                        break;
                     }
-                    p.remove(&sound.id);
+                    let only: Vec<u32> = rates.iter().map(|r| r.1).collect();
+                    res = self
+                        .cache
+                        .get_or_load(path, &only)
+                        .map(|clips| (rates, clips));
+                    match &res {
+                        Ok((r, _)) if *r != self.output_rates() => continue,
+                        _ => break,
+                    }
                 }
-                let res = res.and_then(|clips| {
+                let mut pending = self.pending.lock().unwrap();
+                if !still(&pending) {
+                    return;
+                }
+                if let Some(t) = pending.get_mut(&sound.id) {
+                    t.retain(|x| *x != token);
+                    if t.is_empty() {
+                        pending.remove(&sound.id);
+                    }
+                }
+                let res = res.and_then(|(rates, clips)| {
                     let routed = rates.iter().map(|r| r.0).zip(clips).collect();
                     self.start_voice(&sound.id, routed, sound.volume, false)
                 });
+                drop(pending);
                 if let Err(e) = res {
                     self.emit_playback(&sound.id, PlaybackState::Error, None);
                     self.emit_error(&e);
@@ -735,6 +768,7 @@ impl Inner {
     // ---------- тикер ----------
 
     fn tick(&self) {
+        self.flush_settings();
         {
             let mut outs = self.outputs.lock().unwrap();
             for c in outs.iter_mut().flatten() {
@@ -823,14 +857,27 @@ impl DeviceThread {
                     self.rebuild_all();
                 }
                 Ok(DevMsg::RebuildMic) => self.rebuild_mic(),
-                Ok(DevMsg::StreamError(msg)) => {
+                Ok(DevMsg::StreamError { msg, mut mic_only }) => {
                     // склеиваем пачку ошибок и даём системе устояться
                     std::thread::sleep(Duration::from_millis(300));
-                    while rx.try_recv().is_ok() {}
+                    let mut rebuild = false;
+                    while let Ok(m) = rx.try_recv() {
+                        match m {
+                            DevMsg::StreamError { mic_only: m, .. } => mic_only &= m,
+                            DevMsg::Rebuild => rebuild = true,
+                            DevMsg::RebuildMic => {}
+                        }
+                    }
                     self.inner
                         .emit_error(&AppError::new("device_unavailable", msg));
                     self.refresh_list(false);
-                    self.rebuild_all();
+                    // пропал только микрофон — звуки на выходах не обрываем
+                    if mic_only && !rebuild {
+                        self.resolved = self.want();
+                        self.rebuild_mic();
+                    } else {
+                        self.rebuild_all();
+                    }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     if self.refresh_list(false) {
@@ -888,7 +935,10 @@ impl DeviceThread {
         move |e: cpal::Error| match e.kind() {
             cpal::ErrorKind::Xrun | cpal::ErrorKind::RealtimeDenied => {}
             _ => {
-                let _ = tx.send(DevMsg::StreamError(format!("{what}: {e}")));
+                let _ = tx.send(DevMsg::StreamError {
+                    msg: format!("{what}: {e}"),
+                    mic_only: what == "mic",
+                });
             }
         }
     }
@@ -1013,8 +1063,14 @@ impl DeviceThread {
                 s.channels,
                 devices::period_frames(&s),
             ));
-            if let Some(c) = self.inner.outputs.lock().unwrap()[CABLE].as_mut() {
-                c.send(RtCmd::SetMic(Some(Box::new(reader))));
+            let sent = self.inner.outputs.lock().unwrap()[CABLE]
+                .as_mut()
+                .is_some_and(|c| c.send(RtCmd::SetMic(Some(Box::new(reader)))));
+            if !sent {
+                return Err(AppError::new(
+                    "device_unavailable",
+                    "выход «в микрофон» не принимает команды",
+                ));
             }
             *self.inner.mic_stats.lock().unwrap() = Some(stats);
             self.streams[MIC] = Some(s);
