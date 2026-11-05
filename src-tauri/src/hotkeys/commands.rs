@@ -1,9 +1,10 @@
-//! Tauri-команды хоткеев (участок B2).
-use tauri::State;
+//! Tauri-команды хоткеев (участок B2). Изменяющие команды асинхронные: регистрация в ОС
+//! идёт через главный поток, а команда ждёт результата не блокируя его.
+use tauri::{AppHandle, State};
 
-use super::types::*;
 use super::Hotkeys;
-use crate::error::{AppError, AppResult};
+use super::types::*;
+use crate::error::AppResult;
 
 #[tauri::command]
 pub fn hotkeys_get(hotkeys: State<'_, Hotkeys>) -> Vec<HotkeyBinding> {
@@ -13,23 +14,26 @@ pub fn hotkeys_get(hotkeys: State<'_, Hotkeys>) -> Vec<HotkeyBinding> {
 /// Добавляет или заменяет привязку для того же действия. Ошибка `hotkey_conflict`, если
 /// сочетание занято другим действием или другой программой.
 #[tauri::command]
-pub fn hotkeys_set(
-    _hotkeys: State<'_, Hotkeys>,
-    _binding: HotkeyBinding,
+pub async fn hotkeys_set(
+    app: AppHandle,
+    hotkeys: State<'_, Hotkeys>,
+    binding: HotkeyBinding,
 ) -> AppResult<Vec<HotkeyBinding>> {
-    Err(AppError::not_implemented("hotkeys_set"))
+    hotkeys.set(&app, binding)
 }
 
 #[tauri::command]
-pub fn hotkeys_remove(
-    _hotkeys: State<'_, Hotkeys>,
-    _accelerator: String,
+pub async fn hotkeys_remove(
+    app: AppHandle,
+    hotkeys: State<'_, Hotkeys>,
+    accelerator: String,
 ) -> AppResult<Vec<HotkeyBinding>> {
-    Err(AppError::not_implemented("hotkeys_remove"))
+    hotkeys.remove(&app, &accelerator)
 }
 
 /// `true` — временно снять все глобальные хоткеи (пока UI записывает новое сочетание).
 #[tauri::command]
-pub fn hotkeys_set_capture(_hotkeys: State<'_, Hotkeys>, _active: bool) -> AppResult<()> {
+pub async fn hotkeys_set_capture(app: AppHandle, hotkeys: State<'_, Hotkeys>, active: bool) -> AppResult<()> {
+    hotkeys.set_capture(&app, active);
     Ok(())
 }
