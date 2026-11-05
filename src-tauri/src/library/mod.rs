@@ -217,7 +217,8 @@ impl Library {
                 volume: 1.0,
                 mode: PlayMode::default(),
                 favorite: false,
-                duration_ms: None,
+                // Только заголовок файла, без полного декодирования (участок B).
+                duration_ms: crate::audio::probe_duration_ms(&path),
                 added_at: now,
             });
         }

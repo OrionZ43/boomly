@@ -343,3 +343,34 @@ fn newer_schema_copy_is_refreshed_each_time() {
     opened(dir.path());
     assert_eq!(read(&keep)["x"], json!(2));
 }
+
+/// Минимальный WAV: PCM 16 бит, моно, 48 кГц.
+fn write_wav(path: &Path, samples: u32) {
+    let data_len = samples * 2;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data_len).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    b.extend_from_slice(&1u16.to_le_bytes()); // mono
+    b.extend_from_slice(&48_000u32.to_le_bytes());
+    b.extend_from_slice(&96_000u32.to_le_bytes());
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data_len.to_le_bytes());
+    b.resize(b.len() + data_len as usize, 0);
+    fs::write(path, b).unwrap();
+}
+
+#[test]
+fn import_fills_duration_for_real_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("half.wav");
+    write_wav(&src, 24_000); // 0.5 с
+    let l = opened(&dir.path().join("data"));
+    let (res, _) = l.import(&req(&[&src], None), true).unwrap();
+    let ms = res.added[0].duration_ms.expect("длительность должна определиться");
+    assert!((490..=510).contains(&ms), "{ms}");
+}
